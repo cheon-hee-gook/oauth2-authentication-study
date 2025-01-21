@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Form, Request, Body
 from fastapi.security import OAuth2PasswordBearer
 from datetime import timedelta
 
-from app.auth import create_access_token, verify_password, decode_access_token
+from app.auth import create_access_token, verify_password, decode_access_token, create_refresh_token, \
+    verify_refresh_token
 from app.database import fake_users_db
 from app.schemas import Token, TokenRequest
 
@@ -65,7 +66,34 @@ async def login_for_access_token(
         )
 
     access_token = create_access_token({"sub": user["username"]}, expires_delta=timedelta(minutes=30))
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(user["username"])
+    return {"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token}
+
+
+@app.post("/refresh-token")
+async def refresh_access_token(refresh_data: dict = Body(...)):
+    """
+    Refresh Token을 사용해 새로운 Access Token을 생성
+    요청은 JSON 형식이어야 함
+    """
+    refresh_token = refresh_data.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing refresh_token in request body",
+        )
+    try:
+        # Refresh Token 검증
+        user_id = verify_refresh_token(refresh_token)
+
+        # 새로운 Access Token 생성
+        access_token = create_access_token({"sub": user_id}, expires_delta=timedelta(minutes=30))
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
 
 
 # 보호된 리소스 엔드포인트
