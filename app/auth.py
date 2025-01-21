@@ -34,3 +34,29 @@ def decode_access_token(token: str):
         raise Exception("Token expired")
     except jwt.InvalidTokenError:
         raise Exception("Invalid token")
+
+
+# Refresh Token 저장소
+refresh_tokens = {}
+
+
+# Refresh Token 생성
+def create_refresh_token(user_id: str, expires_delta: timedelta | None = None):
+    expire = datetime.utcnow() + (expires_delta or timedelta(days=7))  # Refresh Token 유효기간 7일
+    token = jwt.encode({"sub": user_id, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    refresh_tokens[user_id] = token
+    return token
+
+
+# Refresh Token 검증
+def verify_refresh_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if refresh_tokens.get(user_id) != token:
+            raise Exception("Invalid refresh token")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise Exception("Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise Exception("Invalid refresh token")
