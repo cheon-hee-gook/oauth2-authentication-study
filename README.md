@@ -1,9 +1,5 @@
 # oauth2-authentication-study
 
-## 주요 기능
-1. **JWT 토큰 발급**: `/token` 엔드포인트를 통해 사용자 인증 및 토큰 발급.
-2. **보호된 리소스**: `/protected` 엔드포인트는 인증된 사용자만 접근 가능.
-
 ## 실행 방법
 1. 레포지토리 클론:
    ```bash
@@ -22,11 +18,16 @@
    uvicorn app.main:app --reload
    ```
 
-4. Swagger UI:
-   - http://127.0.0.1:8000/docs에서 API 테스트.
+## 주요 기능
+1. **JWT 토큰 발급**: 
+   - `/token` 엔드포인트를 통해 사용자 인증 및 토큰 발급
+2. **보호된 리소스**: 
+   - `/protected` 엔드포인트는 인증된 사용자만 접근 가능
+3. **Refresh Token 사용**:
+   - `/refresh-token` 엔드포인트를 통해 만료된 Access Token을 갱신 
+   - Refresh Token을 검증하여 새로운 Access Token을 발급
 
-
-## 데이터 형식 차이로 인한 문제 및 해결 과정
+## [1~2] 데이터 형식 차이로 인한 문제 및 해결 과정
 1. **문제 상황**
    - FastAPI에서 /token 엔드포인트를 구현하여 username과 password를 통해 JWT 토큰을 발급하려고 함
    - Postman과 Swagger UI를 사용하여 /token 엔드포인트를 테스트하는 과정에서 Swagger UI에서 422 Unprocessable Entity 오류가 발생함 
@@ -60,3 +61,35 @@
       - FastAPI에서 Depends와 Request 객체를 활용하면 여러 데이터 형식을 쉽게 처리할 수 있음
    3) API 테스트는 다양한 도구로 진행
       - Postman, Swagger UI 등 다양한 도구로 테스트하며 예상하지 못한 문제를 발견할 수 있었음
+
+## [3] Refresh Token을 통한 Access Token 갱신
+1. **테스트 방법**
+   - URL: /refresh-token 
+   - 메서드: POST 
+   - 요청 헤더: Content-Type: application/json
+   - 요청 본문:
+      ```json
+      {
+        "refresh_token": "<your_refresh_token>"
+      }
+      ```
+   - 응답 본문:
+      ```json
+      {
+        "access_token": "<new_access_token>",
+        "token_type": "bearer"
+      }
+      ```
+
+2. 데이터 흐름
+   - 클라이언트는 /token 엔드포인트를 통해 Access Token과 Refresh Token을 발급받음
+   - Access Token이 만료되면 /refresh-token 엔드포인트를 호출하여 Refresh Token을 사용해 새로운 Access Token을 발급받음
+   - Refresh Token도 만료되었을 경우, 다시 로그인을 통해 새로운 토큰을 발급받아야 함
+
+3. 학습한 점
+   1) Refresh Token의 중요성
+      - Refresh Token을 통해 Access Token 갱신 기능을 구현하여 사용자 경험을 개선할 수 있음을 배웠음
+      - Refresh Token은 더 긴 유효 기간을 가지므로, 사용자 인증 흐름을 간소화할 수 있음
+   2) JWT 사용 시 주의점 
+      - 만료된 토큰, 잘못된 토큰 등 다양한 시나리오를 고려하여 예외 처리를 구현해야 함
+      - Refresh Token은 별도로 관리되어야 하며, 필요 시 데이터베이스에 저장하여 유효성을 검사하는 방식으로 확장 가능함.
