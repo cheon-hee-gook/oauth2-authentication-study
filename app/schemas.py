@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class Token(BaseModel):
     access_token: str
     token_type: str
+    refresh_token: str  # 새로 추가
 
 
 class TokenRequest(BaseModel):
