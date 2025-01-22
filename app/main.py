@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer
 from datetime import timedelta
 
 from app.auth import create_access_token, verify_password, decode_access_token, create_refresh_token, \
-    verify_refresh_token
+    verify_refresh_token, role_required
 from app.database import fake_users_db
 from app.schemas import Token, TokenRequest
 
@@ -58,6 +58,8 @@ async def login_for_access_token(
         )
 
     user = authenticate_user(username, password)
+    role = user.get("role")
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,8 +67,8 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token({"sub": user["username"]}, expires_delta=timedelta(minutes=30))
-    refresh_token = create_refresh_token(user["username"])
+    access_token = create_access_token({"sub": user["username"], "role": role}, expires_delta=timedelta(minutes=30))
+    refresh_token = create_refresh_token({"sub": user["username"], "role": role })
     return {"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token}
 
 
@@ -74,7 +76,6 @@ async def login_for_access_token(
 async def refresh_access_token(refresh_data: dict = Body(...)):
     """
     Refresh Token을 사용해 새로운 Access Token을 생성
-    요청은 JSON 형식이어야 함
     """
     refresh_token = refresh_data.get("refresh_token")
     if not refresh_token:
@@ -84,10 +85,18 @@ async def refresh_access_token(refresh_data: dict = Body(...)):
         )
     try:
         # Refresh Token 검증
-        user_id = verify_refresh_token(refresh_token)
+        payload = verify_refresh_token(refresh_token)
+        user_id = payload.get("sub")
+        user_role = payload.get("role")
+
+        if not user_id or not user_role:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token payload"
+            )
 
         # 새로운 Access Token 생성
-        access_token = create_access_token({"sub": user_id}, expires_delta=timedelta(minutes=30))
+        access_token = create_access_token({"sub": user_id, "role":user_role}, expires_delta=timedelta(minutes=30))
         return {"access_token": access_token, "token_type": "bearer"}
     except Exception as e:
         raise HTTPException(
@@ -107,3 +116,10 @@ async def protected_route(token: str = Depends(oauth2_scheme)):
         return {"message": f"Hello, {username}!"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+
+@app.get("/admin")
+async def admin_route(payload: dict = Depends(role_required("admin"))):
+    username = payload.get("sub")   # 인증된 사용자 정보
+    role = payload.get("role")
+    return {"message": f"Welcome, {role}: {username}!"}
