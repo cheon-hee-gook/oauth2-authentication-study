@@ -26,6 +26,9 @@
 3. **Refresh Token 사용**:
    - `/refresh-token` 엔드포인트를 통해 만료된 Access Token을 갱신 
    - Refresh Token을 검증하여 새로운 Access Token을 발급
+4. **권한 관리**:
+   - `/admin` 엔드포인트는 `admin` 역할을 가진 사용자만 접근 가능
+   - 역할(Role) 기반의 접근 제어 기능 구현
 
 ## [1~2] 데이터 형식 차이로 인한 문제 및 해결 과정
 1. **문제 상황**
@@ -64,9 +67,9 @@
 
 ## [3] Refresh Token을 통한 Access Token 갱신
 1. **테스트 방법**
-   - URL: /refresh-token 
-   - 메서드: POST 
-   - 요청 헤더: Content-Type: application/json
+   - URL: `/refresh-token` 
+   - 메서드: `POST` 
+   - 요청 헤더: `Content-Type: application/json`
    - 요청 본문:
       ```json
       {
@@ -93,3 +96,53 @@
    2) JWT 사용 시 주의점 
       - 만료된 토큰, 잘못된 토큰 등 다양한 시나리오를 고려하여 예외 처리를 구현해야 함
       - Refresh Token은 별도로 관리되어야 하며, 필요 시 데이터베이스에 저장하여 유효성을 검사하는 방식으로 확장 가능함.
+
+## [4] 권한(Role) 관리
+1. **테스트 방법**
+   - 토큰 발급
+   - URL: `/token` 
+   - 메서드: `POST`
+   - 요청 헤더: `Content-Type: application/json`
+   - 요청 본문:
+      ```json
+      {
+          "username": "user1",
+          "password": "password1"
+      }
+      ```
+   - 응답 본문:
+      ```json
+      {
+        "access_token": "<access_token>",
+        "token_type": "bearer",
+        "refresh_token": "<refresh_token>"
+      }
+      ```
+
+   - 권한 경로 접근
+   - URL: `/admin`
+   - 메서드: `GET` 
+   - 요청 헤더: `Authorization: Bearer <access_token>`
+   - 요청 본문(성공):
+      ```json
+      {
+        "message": "Welcome, admin: user1"
+      }
+      ```
+   - 응답 본문(권한 부족:
+      ```json
+      {
+        "detail": "403: Insufficient permissions"
+      }
+      ```
+
+2. 구현 사항
+   - `/admin` 엔드포인트는 `admin` 역할을 가진 사용자만 접근 가능
+   - `role_required` 의존성을 사용해 역할 기반 접근 제어 구현
+     - Access Token의 `role` 값을 확인하여 적절한 권한인지 검증
+     - 권한 부족 시 HTTP 403 응답 반환
+
+3. 학습한 점
+   1) 역할 기반 접근 제어: 사용자 역할(Role)을 토큰에 포함시켜 API의 권한 관리를 쉽게 구현 가능
+   2) JWT 확장성: `role`과 같은 추가 정보를 JWT에 포함하여 다양한 인증/인가 로직을 구현 가능
+   3) 의존성을 활용한 권한 관리: FastAPI의 의존성 주입을 통해 코드의 재사용성과 가독성 증가
