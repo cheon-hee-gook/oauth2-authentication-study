@@ -1,11 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Form, Request, Body
 from fastapi.security import OAuth2PasswordBearer
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from app.auth import create_access_token, verify_password, decode_access_token, create_refresh_token, \
-    verify_refresh_token, role_required
+    verify_refresh_token, role_required, add_token_to_blacklist, is_token_blacklisted
 from app.database import fake_users_db
-from app.schemas import Token, TokenRequest
+from app.schemas import Token
 
 # OAuth2 설정
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
@@ -109,6 +109,8 @@ async def refresh_access_token(refresh_data: dict = Body(...)):
 @app.get("/protected")
 async def protected_route(token: str = Depends(oauth2_scheme)):
     try:
+        if is_token_blacklisted(token):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is blacklisted")
         payload = decode_access_token(token)
         username = payload.get("sub")
         if username is None:
@@ -123,3 +125,17 @@ async def admin_route(payload: dict = Depends(role_required("admin"))):
     username = payload.get("sub")   # 인증된 사용자 정보
     role = payload.get("role")
     return {"message": f"Welcome, {role}: {username}!"}
+
+
+@app.post("/logout")
+async def logout(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = decode_access_token(token)
+        expires_in = int(payload["exp"] - datetime.utcnow().timestamp())
+        add_token_to_blacklist(token, expires_in)
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
