@@ -18,17 +18,27 @@
    uvicorn app.main:app --reload
    ```
 
+4. redis 설치 및 실행:
+   ```bash
+   docker pull redis
+   docker run -d -p 6379:6379 --name redis-server redis
+   ```
+
 ## 주요 기능
 1. **JWT 토큰 발급**: 
    - `/token` 엔드포인트를 통해 사용자 인증 및 토큰 발급
+   - Access Token은 Redis를 통해 블랙리스트 처리
+   - Refresh Token은 Redis에 저장 및 검증
 2. **보호된 리소스**: 
    - `/protected` 엔드포인트는 인증된 사용자만 접근 가능
 3. **Refresh Token 사용**:
    - `/refresh-token` 엔드포인트를 통해 만료된 Access Token을 갱신 
-   - Refresh Token을 검증하여 새로운 Access Token을 발급
+   - Redis에 저장된 Refresh Token을 통해 유효성 검증
 4. **권한 관리**:
    - `/admin` 엔드포인트는 `admin` 역할을 가진 사용자만 접근 가능
    - 역할(Role) 기반의 접근 제어 기능 구현
+5. **토큰 블랙리스트 처리**:
+   - `/logout` 엔드포인트를 통해 Access Token을 블랙리스트에 등록하여 무효화
 
 ## [1~2] 데이터 형식 차이로 인한 문제 및 해결 과정
 1. **문제 상황**
@@ -136,13 +146,61 @@
       }
       ```
 
-2. 구현 사항
+2. **구현 사항**
    - `/admin` 엔드포인트는 `admin` 역할을 가진 사용자만 접근 가능
    - `role_required` 의존성을 사용해 역할 기반 접근 제어 구현
      - Access Token의 `role` 값을 확인하여 적절한 권한인지 검증
      - 권한 부족 시 HTTP 403 응답 반환
 
-3. 학습한 점
+3. **학습한 점**
    1) 역할 기반 접근 제어: 사용자 역할(Role)을 토큰에 포함시켜 API의 권한 관리를 쉽게 구현 가능
    2) JWT 확장성: `role`과 같은 추가 정보를 JWT에 포함하여 다양한 인증/인가 로직을 구현 가능
    3) 의존성을 활용한 권한 관리: FastAPI의 의존성 주입을 통해 코드의 재사용성과 가독성 증가
+
+## [5] 토큰 블랙리스트 처리
+1. **구현 사항**
+   - `/logout` 엔드포인트를 통해 클라이언트의 Access Token을 블랙리스트에 등록하여 무효화 
+   - Redis를 활용해 Access Token을 저장 및 검증
+     - Access Token이 블랙리스트에 존재하면 모든 보호된 리소스에 접근 불가 
+   - Refresh Token 역시 Redis에 저장 및 관리하여, 로그아웃 시 Refresh Token도 무효화
+
+2. **테스트 방법**
+   - 로그아웃 요청 
+   - URL: `/logout`
+   - 메서드: `POST` 
+   - 요청 헤더: `Authorization: Bearer <access_token>`
+   - 응답:
+     ```json
+     {
+        "message": "Logged out successfully"
+     }
+     ```
+   
+   - 블랙리스트된 토큰으로 접근 
+   - URL: `/protected`
+   - 메서드: `GET`
+   - 요청 헤더: `Authorization: Bearer <blacklisted_access_token>`
+   - 응답:
+     ```json
+     {
+        "detail": "Invalid or expired token"
+     }
+     ```
+  
+3. **데이터 흐름**
+   1) 클라이언트가 /logout 호출 시: 
+      - Access Token을 Redis 블랙리스트에 등록 
+      - 등록된 토큰은 만료 시간까지 무효 처리
+   2) 보호된 리소스 접근 시:
+      - Access Token이 Redis 블랙리스트에 있으면 HTTP 401 응답
+   
+4. 학습한 점
+   1) Redis를 활용한 토큰 블랙리스트 관리
+      - Redis는 빠른 읽기/쓰기 성능과 만료 기능을 제공하여 토큰 관리에 적합 
+      - Redis의 SETEX(만료 시간을 지정해 저장) 명령을 활용하여 자동 만료 처리
+   2) 로그아웃 로직의 중요성
+      - 클라이언트가 강제로 로그아웃된 경우에도 모든 토큰이 무효화되는 보안 강화
+      - Refresh Token 역시 관리함으로써 인증 흐름 전반에 걸친 안전성 확보
+   3) JWT 기반 인증의 보안성 증대
+      - 블랙리스트와 Refresh Token 관리를 조합하여 JWT의 단점을 보완 가능
+      - 실시간으로 토큰 상태를 관리해 사용자의 의도에 맞는 인증 흐름 제공
