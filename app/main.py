@@ -1,17 +1,24 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Form, Request, Body
 from fastapi.security import OAuth2PasswordBearer
 from datetime import timedelta, datetime
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import create_access_token, verify_password, decode_access_token, create_refresh_token, \
     verify_refresh_token, role_required, add_token_to_blacklist, is_token_blacklisted
 from app.database import fake_users_db
 from app.schemas import Token
+from app.routes import router as auth_router
 
 # OAuth2 설정
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
 app = FastAPI()
 
+# OAuth2 라우터 추가
+app.include_router(auth_router)
+
+# 세션 미들웨어 추가
+app.add_middleware(SessionMiddleware, secret_key="super_secret_key")
 
 # 사용자 인증 함수
 def authenticate_user(username: str, password: str):
