@@ -5,6 +5,9 @@ from fastapi.security import OAuth2PasswordBearer
 import jwt
 
 from app.redis_client import redis_client  # Redis 클라이언트
+from authlib.integrations.starlette_client import OAuth
+from app.settings import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, PROVIDER
+
 
 # 비밀번호 해싱 설정
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -121,3 +124,22 @@ def role_required(required_role: str):
         return payload  # 인증 및 권함 건증이 통과되면 반환
 
     return dependency
+
+
+# OAuth google
+oauth = OAuth()
+
+
+# Google 클라이언트 등록
+oauth.register(
+    name=PROVIDER,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET,
+    access_token_url=f"https://accounts.google.com/o/oauth2/token",
+    authorize_url=f"https://accounts.google.com/o/oauth2/auth",
+    api_base_url="https://www.googleapis.com/oauth2/v1/",
+    jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
+    client_kwargs={
+        "scope": "openid email profile"
+    }
+)
