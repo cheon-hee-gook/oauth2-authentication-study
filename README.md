@@ -23,6 +23,18 @@
    docker pull redis
    docker run -d -p 6379:6379 --name redis-server redis
    ```
+   
+5. Google OAuth2 설정:
+   - Google Cloud Console에서 OAuth 클라이언트를 생성하고 승인된 리디렉션 URI를 추가:
+     ```bash
+     http://127.0.0.1:8000/auth/callback
+     ```
+   - .env 파일에 클라이언트 ID, 비밀 키, 리디렉션 URI 설정:
+     ```bash
+     CLIENT_ID=your_google_client_id
+     CLIENT_SECRET=your_google_client_secret
+     REDIRECT_URI=http://127.0.0.1:8000/auth/callback
+     ```
 
 ## 주요 기능
 1. **JWT 토큰 발급**: 
@@ -39,6 +51,9 @@
    - 역할(Role) 기반의 접근 제어 기능 구현
 5. **토큰 블랙리스트 처리**:
    - `/logout` 엔드포인트를 통해 Access Token을 블랙리스트에 등록하여 무효화
+6. **Google OAuth2 클라이언트 인증**:
+   - `/auth/login` 엔드포인트를 통해 Google 로그인 요청
+   - `/auth/callback` 엔드포인트를 통해 Google 인증 응답 처리 및 사용자 정보 반환
 
 ## [1~2] 데이터 형식 차이로 인한 문제 및 해결 과정
 1. **문제 상황**
@@ -220,3 +235,90 @@
      - JWT는 발급 시 유효 기간을 포함
      - 유효 기간이 짧은 경우, 토큰이 만료되면 블랙리스트 없이도 토큰을 재사용할 수 없음
      - 따라서 유효 기간 설정이 잘 이루어진다면 블랙리스트의 필요성이 줄어듦
+
+## [6] Google OAuth2 클라이언트 인증
+
+1. **구현 사항**
+   - Google OAuth2 인증 흐름 
+   - 로그인 요청:
+     - 클라이언트가 /auth/login에 요청을 보냄
+     - Google 로그인 페이지로 리디렉션
+   - 인증 완료 후 리디렉션:
+     - Google 인증 후, 클라이언트는 승인된 리디렉션 URI(/auth/callback)로 돌아옴
+     - 서버는 access_token과 id_token을 처리
+   - 유저 정보 반환:
+     - Google의 userinfo API를 호출하여 사용자 정보를 반환
+
+2. **테스트 방법**
+   - Google 로그인 요청
+   - URL: `/auth/login`
+   - Method: `GET` 
+   - 응답:
+     - 브라우저가 Google 로그인 페이지로 리디렉션
+     - 성공적으로 로그인 시, 승인된 리디렉션 URI(/auth/callback)로 돌아옴
+
+   - Google 인증 응답 처리
+   - URL: `/auth/callback`
+   - Method: `GET`
+   - 성공 시 반환되는 사용자 정보:
+     ```
+     {
+         "id": "1234567890",
+         "email": "user@example.com",
+         "name": "User Name",
+         "picture": "https://example.com/user_picture.png"
+     }
+     ```
+
+3. **삽질 및 문제 해결 과정**
+   - 문제: redirect_uri_mismatch 오류 
+   - 원인: Google Cloud Console의 승인된 리디렉션 URI와 FastAPI 설정의 REDIRECT_URI가 불일치
+   - 해결:
+     - Google Cloud Console에 정확한 URI(http://127.0.0.1:8000/auth/callback) 추가
+     - .env 파일에서 동일한 값을 사용
+
+   - 문제: SessionMiddleware must be installed 
+   - 원인: authlib를 사용한 OAuth2 구현에서는 세션 데이터를 저장하고 관리하기 위해 SessionMiddleware가 필요
+   - 해결:
+     - FastAPI 애플리케이션에 SessionMiddleware 추가:
+       ```python
+       app.add_middleware(SessionMiddleware, secret_key="secret_key")
+       ```
+   
+   - 문제: KeyError: 'id_token' 
+   - 원인: Google OAuth2 인증 응답에 id_token 누락
+   - 해결:
+     - Google OAuth 클라이언트 설정에서 scope에 openid 포함
+     - 응답 token에 id_token이 있는데도 에러가 발생하여 아래 방법으로 해결
+     - 인증 응답에서 id_token 확인 및 사용자 정보 가져오기 처리 추가:
+       ```python
+       if "id_token" not in token:
+             raise ValueError("ID token is missing in token response")
+       # 사용자 정보 가져오기
+        user_info = await oauth.google.get("userinfo", token=token)
+        return {"user": user_info.json()}
+       ```
+
+   - 문제: Missing "jwks_uri" in metadata 
+   - 원인: 라이브러리가 자동으로 가져오지 못하는 경우, 수동으로 jwks_uri를 설정하거나 필요한 키를 가져와야 함
+   - 해결:
+     - oauth.register에 jwks_uri 추가:
+       ```python
+       jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
+       ```
+4. **학습한 점**
+   1) OAuth2 클라이언트 인증: Google OAuth2 인증을 FastAPI와 Authlib으로 구현하는 방법을 학습
+   2) 세션 관리: SessionMiddleware를 활용하여 사용자 인증 상태를 효과적으로 관리
+   3) Google Cloud Console 설정 중요성: OAuth2 인증 흐름에서 redirect_uri 설정이 필수적임을 이해
+   4) 디버깅 및 예외 처리: 실시간으로 디버깅하며 발생할 수 있는 다양한 문제를 처리하는 경험
+
+## 학습 후기
+스터디를 통해 FastAPI와 OAuth2 인증의 흐름을 전반적으로 이해할 수 있었다.
+
+- OAuth2와 JWT를 활용해 인증 시스템을 직접 구축하면서, 실제로 마주칠 수 있는 다양한 문제를 해결해 보는 경험을 통해 실무에서 필요한 디버깅 능력을 키울 수 있었다.
+- Redis를 사용한 블랙리스트 처리와 세션 관리 구현 과정을 통해 보안과 확장성을 고려한 시스템 설계에 대해 배울 수 있었다.
+- Google OAuth2 클라이언트를 이용해 OAuth2 인증의 흐름을 직접 경험해 보았다. 특히, redirect_uri 설정, id_token 처리, 인증 후 사용자 정보 추출까지의 과정을 구체적으로 이해할 수 있었다.
+- FastAPI의 의존성 주입과 라우팅 시스템을 활용해 구조적으로 코드를 작성하는 방법을 익혔다.
+- 학습 중 발생했던 다양한 오류와 문제를 해결하며 더 깊이 배우는 계기가 되었다. 특히 Google Cloud Console 설정, SessionMiddleware 추가, Redis와의 통합 과정은 좋은 경험으로 남았다.
+
+이번 스터디를 통해 인증과 인가를 다루는 백엔드 개발의 핵심을 배우는 데 큰 도움이 되었고, 더 나은 코드 설계와 보안을 고려한 시스템 구현의 중요성을 다시 한 번 깨달을 수 있었다.
